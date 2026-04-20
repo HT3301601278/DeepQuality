@@ -1,0 +1,26 @@
+model:
+  name: ss_ddfae
+  latent_dim: 32
+  hidden_dims: [64, 32]
+  dropout: 0.0
+
+training:
+  batch_size: 64
+  epochs: 200
+  learning_rate: 0.0005
+  weight_decay: 0.0001
+  patience: 20
+  grad_clip: 1.0
+  noise_std: 0.03
+  tau: 0.05
+  ramp_start: 20
+  ramp_end: 60
+  pseudo_start: 60
+  lambda_rec: 0.05
+  lambda_sup_fus: 1.0
+  lambda_sup_aux: 0.2
+  lambda_con: 0.05
+  lambda_pl: 0.2
+  reconstruction_weights: [0.5, 0.3, 0.2]
+  auxiliary_weights: [0.2, 0.3, 0.5]
+  label_ratio: 0.2

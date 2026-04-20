@@ -1,0 +1,18 @@
+seed: 3
+device: auto
+
+data:
+  path: data/raw/Debutanizer_Data.csv
+  target_column: y
+  train_ratio: 0.70
+  val_ratio: 0.15
+  window_size: 40
+  quality_delay: 12
+  label_ratios: [0.2, 0.3, 0.5, 1.0]
+  scales: []
+
+paths:
+  logs_dir: artifacts/logs
+  figures_dir: artifacts/figures
+  checkpoints_dir: artifacts/checkpoints
+  tables_dir: artifacts/tables
