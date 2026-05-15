@@ -25,6 +25,9 @@ class CandidateResult:
     val_metrics: dict[str, float]
     test_metrics: dict[str, float] | None
     selected: bool
+    order: int | None = None
+    phis: list[float] | None = None
+    ridge: float | None = None
 
 
 def checkpoint_postprocess_paths(checkpoint_path: str | Path) -> tuple[Path, Path]:
@@ -68,13 +71,31 @@ def ema_filter(values: np.ndarray, alpha: float) -> np.ndarray:
 
 
 def fit_ar1(residual: np.ndarray, prev_residual: float) -> tuple[float, float]:
+    c, phis = fit_ar(residual, [prev_residual], order=1, ridge=0.0)
+    return c, phis[0]
+
+
+def fit_ar(residual: np.ndarray, previous_residuals: list[float], order: int, ridge: float = 0.0) -> tuple[float, list[float]]:
+    if order < 1:
+        raise ValueError("AR 阶数必须大于等于 1")
     if len(residual) == 0:
-        return 0.0, 0.0
-    x = np.concatenate(([prev_residual], residual[:-1]))
-    y = residual
-    design = np.column_stack([np.ones_like(x), x])
-    coef, *_ = np.linalg.lstsq(design, y, rcond=None)
-    return float(coef[0]), float(coef[1])
+        return 0.0, [0.0] * order
+    history = [float(value) for value in previous_residuals] or [0.0]
+    rows = []
+    targets = []
+    for value in residual:
+        lags = _residual_lags(history, order)
+        rows.append([1.0, *lags])
+        targets.append(float(value))
+        history.append(float(value))
+    design = np.asarray(rows, dtype=np.float64)
+    target = np.asarray(targets, dtype=np.float64)
+    if ridge > 0.0:
+        penalty = np.diag([0.0, *([1.0] * order)])
+        coef = np.linalg.solve(design.T @ design + ridge * penalty, design.T @ target)
+    else:
+        coef, *_ = np.linalg.lstsq(design, target, rcond=None)
+    return float(coef[0]), [float(value) for value in coef[1:]]
 
 
 def apply_postprocess(
@@ -86,6 +107,8 @@ def apply_postprocess(
     alpha: float | None = None,
     c: float | None = None,
     phi: float | None = None,
+    phis: list[float] | None = None,
+    order: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     if method == "raw":
         return raw_val.astype(np.float64, copy=True), raw_test.astype(np.float64, copy=True)
@@ -94,17 +117,16 @@ def apply_postprocess(
         val_end = len(raw_train) + len(raw_val)
         return combined[len(raw_train):val_end], combined[val_end:]
     if method == "ar":
-        return _apply_ar(raw_train, raw_val, raw_test, train_true_last, float(c), float(phi))
+        return _apply_ar(raw_val, raw_test, [train_true_last - raw_train[-1]], float(c), _resolve_phis(phi, phis, order))
     if method == "ema+ar":
         filtered = ema_filter(np.concatenate([raw_train, raw_val, raw_test]), float(alpha))
         val_end = len(raw_train) + len(raw_val)
         return _apply_ar(
-            filtered[:len(raw_train)],
             filtered[len(raw_train):val_end],
             filtered[val_end:],
-            train_true_last,
+            [train_true_last - filtered[len(raw_train) - 1]],
             float(c),
-            float(phi),
+            _resolve_phis(phi, phis, order),
         )
     raise ValueError(f"未知后处理方法：{method}")
 
@@ -125,12 +147,16 @@ def apply_summary_to_test(
         summary.get("best_alpha"),
         summary.get("best_c"),
         summary.get("best_phi"),
+        summary.get("best_phis"),
+        summary.get("best_order"),
     )
     return post_test, {
         "method": summary["best_method"],
         "alpha": summary.get("best_alpha"),
         "c": summary.get("best_c"),
         "phi": summary.get("best_phi"),
+        "phis": summary.get("best_phis"),
+        "order": summary.get("best_order"),
     }
 
 
@@ -143,27 +169,31 @@ def build_postprocess_state(summary: dict, raw_train: np.ndarray, raw_val: np.nd
         "alpha": summary.get("best_alpha"),
         "c": summary.get("best_c"),
         "phi": summary.get("best_phi"),
+        "phis": summary.get("best_phis"),
+        "order": summary.get("best_order"),
     }
     if method == "ema":
         filtered = ema_filter(np.concatenate([raw_train, raw_val]), float(summary["best_alpha"]))
         state["filtered_prev"] = float(filtered[-1])
         return state
     if method == "ar":
-        prev_residual = float(train_true_last - raw_train[-1])
+        phis = _resolve_phis(summary.get("best_phi"), summary.get("best_phis"), summary.get("best_order"))
+        residual_history = [float(train_true_last - raw_train[-1])]
         for raw_value in raw_val:
-            residual_hat = float(summary["best_c"] + summary["best_phi"] * prev_residual)
-            prev_residual = residual_hat
-        state["residual_prev"] = prev_residual
+            residual_hat = _predict_ar_residual(float(summary["best_c"]), phis, residual_history)
+            residual_history.append(residual_hat)
+        state["residual_history"] = residual_history[-len(phis):]
         return state
     if method == "ema+ar":
         filtered = ema_filter(np.concatenate([raw_train, raw_val]), float(summary["best_alpha"]))
         train_end = len(raw_train)
-        prev_residual = float(train_true_last - filtered[train_end - 1])
+        phis = _resolve_phis(summary.get("best_phi"), summary.get("best_phis"), summary.get("best_order"))
+        residual_history = [float(train_true_last - filtered[train_end - 1])]
         for filtered_value in filtered[train_end:]:
-            residual_hat = float(summary["best_c"] + summary["best_phi"] * prev_residual)
-            prev_residual = residual_hat
+            residual_hat = _predict_ar_residual(float(summary["best_c"]), phis, residual_history)
+            residual_history.append(residual_hat)
         state["filtered_prev"] = float(filtered[-1])
-        state["residual_prev"] = prev_residual
+        state["residual_history"] = residual_history[-len(phis):]
         return state
     raise ValueError(f"未知后处理方法：{method}")
 
@@ -177,14 +207,20 @@ def apply_postprocess_step(raw_pred: float, state: dict) -> float:
         state["filtered_prev"] = filtered
         return filtered
     if method == "ar":
-        residual_hat = float(state["c"] + state["phi"] * state["residual_prev"])
-        state["residual_prev"] = residual_hat
+        phis = _resolve_phis(state.get("phi"), state.get("phis"), state.get("order"))
+        residual_history = state.setdefault("residual_history", [0.0])
+        residual_hat = _predict_ar_residual(float(state["c"]), phis, residual_history)
+        residual_history.append(residual_hat)
+        state["residual_history"] = residual_history[-len(phis):]
         return float(raw_pred + residual_hat)
     if method == "ema+ar":
         filtered = float(state["alpha"] * raw_pred + (1.0 - state["alpha"]) * state["filtered_prev"])
         state["filtered_prev"] = filtered
-        residual_hat = float(state["c"] + state["phi"] * state["residual_prev"])
-        state["residual_prev"] = residual_hat
+        phis = _resolve_phis(state.get("phi"), state.get("phis"), state.get("order"))
+        residual_history = state.setdefault("residual_history", [0.0])
+        residual_hat = _predict_ar_residual(float(state["c"]), phis, residual_history)
+        residual_history.append(residual_hat)
+        state["residual_history"] = residual_history[-len(phis):]
         return float(filtered + residual_hat)
     raise ValueError(f"未知后处理方法：{method}")
 
@@ -194,6 +230,8 @@ def evaluate_candidates(
     y_pred_all: np.ndarray,
     split_info: dict[str, SplitInfo],
     alphas: tuple[float, ...],
+    ar_orders: tuple[int, ...] = (1,),
+    ridge_values: tuple[float, ...] = (0.0,),
 ) -> list[CandidateResult]:
     train = split_info["train"]
     val = split_info["val"]
@@ -231,61 +269,89 @@ def evaluate_candidates(
             )
         )
 
-    c, phi = fit_ar1(val_true - raw_val, train_true_last - raw_train[-1])
-    val_pred, test_pred = _apply_ar(raw_train, raw_val, raw_test, train_true_last, c, phi)
-    candidates.append(
-        CandidateResult(
-            method="ar",
-            alpha=None,
-            c=c,
-            phi=phi,
-            val_metrics=regression_metrics(val_true, val_pred),
-            test_metrics=regression_metrics(test_true, test_pred),
-            selected=False,
-        )
-    )
+    for order in ar_orders:
+        for ridge in ridge_values:
+            c, phis = fit_ar(val_true - raw_val, [train_true_last - raw_train[-1]], order=order, ridge=ridge)
+            val_pred, test_pred = _apply_ar(raw_val, raw_test, [train_true_last - raw_train[-1]], c, phis)
+            candidates.append(
+                CandidateResult(
+                    method="ar",
+                    alpha=None,
+                    c=c,
+                    phi=phis[0],
+                    val_metrics=regression_metrics(val_true, val_pred),
+                    test_metrics=regression_metrics(test_true, test_pred),
+                    selected=False,
+                    order=order,
+                    phis=phis,
+                    ridge=ridge,
+                )
+            )
 
     for alpha in alphas:
         ema_train, ema_val_test = _split_ema(raw_train, raw_val, raw_test, alpha)
         ema_val = ema_val_test[:len(raw_val)]
         ema_test = ema_val_test[len(raw_val):]
-        c, phi = fit_ar1(val_true - ema_val, train_true_last - ema_train[-1])
-        val_pred, test_pred = _apply_ar(ema_train, ema_val, ema_test, train_true_last, c, phi)
-        candidates.append(
-            CandidateResult(
-                method="ema+ar",
-                alpha=alpha,
-                c=c,
-                phi=phi,
-                val_metrics=regression_metrics(val_true, val_pred),
-                test_metrics=regression_metrics(test_true, test_pred),
-                selected=False,
-            )
-        )
+        for order in ar_orders:
+            for ridge in ridge_values:
+                c, phis = fit_ar(val_true - ema_val, [train_true_last - ema_train[-1]], order=order, ridge=ridge)
+                val_pred, test_pred = _apply_ar(ema_val, ema_test, [train_true_last - ema_train[-1]], c, phis)
+                candidates.append(
+                    CandidateResult(
+                        method="ema+ar",
+                        alpha=alpha,
+                        c=c,
+                        phi=phis[0],
+                        val_metrics=regression_metrics(val_true, val_pred),
+                        test_metrics=regression_metrics(test_true, test_pred),
+                        selected=False,
+                        order=order,
+                        phis=phis,
+                        ridge=ridge,
+                    )
+                )
 
     return candidates
 
 
 def _apply_ar(
-    raw_train: np.ndarray,
     raw_val: np.ndarray,
     raw_test: np.ndarray,
-    train_true_last: float,
+    previous_residuals: list[float],
     c: float,
-    phi: float,
+    phis: list[float],
 ) -> tuple[np.ndarray, np.ndarray]:
-    prev_residual = train_true_last - raw_train[-1]
+    residual_history = [float(value) for value in previous_residuals] or [0.0]
     val_corrected = np.array(raw_val, dtype=np.float64, copy=True)
     for index in range(len(val_corrected)):
-        residual_hat = c + phi * prev_residual
+        residual_hat = _predict_ar_residual(c, phis, residual_history)
         val_corrected[index] += residual_hat
-        prev_residual = residual_hat
+        residual_history.append(residual_hat)
     test_corrected = np.array(raw_test, dtype=np.float64, copy=True)
     for index in range(len(test_corrected)):
-        residual_hat = c + phi * prev_residual
+        residual_hat = _predict_ar_residual(c, phis, residual_history)
         test_corrected[index] += residual_hat
-        prev_residual = residual_hat
+        residual_history.append(residual_hat)
     return val_corrected, test_corrected
+
+
+def _resolve_phis(phi: float | None, phis: list[float] | None, order: int | None) -> list[float]:
+    if phis:
+        return [float(value) for value in phis]
+    resolved_order = 1 if order is None else int(order)
+    first_phi = 0.0 if phi is None else float(phi)
+    return [first_phi, *([0.0] * (resolved_order - 1))]
+
+
+def _predict_ar_residual(c: float, phis: list[float], residual_history: list[float]) -> float:
+    lags = _residual_lags(residual_history, len(phis))
+    return float(c + sum(phi * lag for phi, lag in zip(phis, lags)))
+
+
+def _residual_lags(history: list[float], order: int) -> list[float]:
+    if not history:
+        return [0.0] * order
+    return [float(history[-index]) if len(history) >= index else float(history[-1]) for index in range(1, order + 1)]
 
 
 def _split_ema(raw_train: np.ndarray, raw_val: np.ndarray, raw_test: np.ndarray, alpha: float) -> tuple[np.ndarray, np.ndarray]:
