@@ -31,9 +31,11 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+.matplotlib-cache/
 
 # Project outputs
 artifacts/
+exports/
 
 # Local environment
 .env
