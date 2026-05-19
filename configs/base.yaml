@@ -6,6 +6,8 @@ data:
   target_column: y
   train_ratio: 0.70
   val_ratio: 0.15
+  split_method: chronological
+  correlation_weight_mode: original
   window_size: 40
   quality_delay: 12
   label_ratios: [0.2, 0.3, 0.5, 1.0]

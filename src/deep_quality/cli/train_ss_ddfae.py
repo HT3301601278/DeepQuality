@@ -21,6 +21,8 @@ def main() -> None:
         args.window_size,
         args.quality_delay,
         args.latent_dim,
+        args.split_method,
+        args.correlation_weight_mode,
         epochs=args.epochs,
     )
     set_seed(int(config["seed"]))
@@ -136,6 +138,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window-size", type=int)
     parser.add_argument("--quality-delay", type=int)
     parser.add_argument("--latent-dim", type=int)
+    parser.add_argument("--split-method")
+    parser.add_argument("--correlation-weight-mode")
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--output-name")
     return parser.parse_args()

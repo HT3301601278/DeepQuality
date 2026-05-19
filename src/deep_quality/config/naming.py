@@ -13,6 +13,10 @@ def build_checkpoint_name(model_name: str, config: dict, suffix: str | None = No
     else:
         window_size = int(config["data"]["window_size"])
         name = f"{model_name}_L{window_size}_d{quality_delay}_z{latent_dim}_r{label_ratio:g}"
+    if config["data"].get("split_method") == "random_window":
+        name = f"{name}_rw"
+    if config["data"].get("correlation_weight_mode") == "none":
+        name = f"{name}_nw"
     if suffix:
         return f"{name}_{suffix}"
     return name

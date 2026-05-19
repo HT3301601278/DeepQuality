@@ -21,6 +21,8 @@ def main() -> None:
         args.window_size,
         args.quality_delay,
         args.latent_dim,
+        args.split_method,
+        args.correlation_weight_mode,
         parse_cli_scales(args.scales),
         args.pretrain_epochs,
         args.finetune_epochs,
@@ -109,6 +111,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window-size", type=int)
     parser.add_argument("--quality-delay", type=int)
     parser.add_argument("--latent-dim", type=int)
+    parser.add_argument("--split-method")
+    parser.add_argument("--correlation-weight-mode")
     parser.add_argument("--scales")
     parser.add_argument("--pretrain-epochs", type=int)
     parser.add_argument("--finetune-epochs", type=int)

@@ -22,6 +22,8 @@ def apply_overrides(
     window_size: int | None = None,
     quality_delay: int | None = None,
     latent_dim: int | None = None,
+    split_method: str | None = None,
+    correlation_weight_mode: str | None = None,
     scales: list[tuple[int, int]] | None = None,
     pretrain_epochs: int | None = None,
     finetune_epochs: int | None = None,
@@ -37,6 +39,10 @@ def apply_overrides(
         config["data"]["quality_delay"] = int(quality_delay)
     if latent_dim is not None:
         config["model"]["latent_dim"] = int(latent_dim)
+    if split_method is not None:
+        config["data"]["split_method"] = split_method
+    if correlation_weight_mode is not None:
+        config["data"]["correlation_weight_mode"] = correlation_weight_mode
     if scales is not None:
         config["data"]["scales"] = [[int(size), int(stride)] for size, stride in scales]
     if pretrain_epochs is not None:

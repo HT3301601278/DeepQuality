@@ -19,6 +19,28 @@ def chronological_split(
     }
 
 
+def split_indices(
+    n_samples: int,
+    train_ratio: float = 0.70,
+    val_ratio: float = 0.15,
+    method: str = "chronological",
+    seed: int = 0,
+) -> dict[str, np.ndarray]:
+    train_end = int(n_samples * train_ratio)
+    val_end = train_end + int(n_samples * val_ratio)
+    if method == "chronological":
+        order = np.arange(n_samples)
+    elif method == "random_window":
+        order = np.random.default_rng(seed).permutation(n_samples)
+    else:
+        raise ValueError(f"未知数据划分方法：{method}")
+    return {
+        "train": order[:train_end],
+        "val": order[train_end:val_end],
+        "test": order[val_end:],
+    }
+
+
 def nested_label_masks(n_samples: int, ratios: list[float], seed: int) -> dict[float, np.ndarray]:
     order = np.random.default_rng(seed).permutation(n_samples)
     masks = {}

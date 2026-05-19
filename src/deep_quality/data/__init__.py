@@ -1,6 +1,6 @@
 from .pipeline import prepare_windowed_data
 from .scaling import Standardizer, compute_correlation_weights, fit_transform_splits
-from .split import chronological_split, nested_label_masks
+from .split import chronological_split, nested_label_masks, split_indices
 from .windowing import make_multiscale_windows, make_windows
 
 __all__ = [
@@ -12,4 +12,5 @@ __all__ = [
     "make_windows",
     "nested_label_masks",
     "prepare_windowed_data",
+    "split_indices",
 ]
