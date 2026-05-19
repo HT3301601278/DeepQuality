@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,8 @@ from deep_quality.inference import build_split_info, checkpoint_postprocess_path
 from deep_quality.utils import save_json
 
 ALPHAS = tuple(float(round(value, 1)) for value in np.arange(0.1, 1.01, 0.1))
+DEFAULT_AR_ORDERS = (1,)
+DEFAULT_RIDGE_VALUES = (0.0,)
 
 
 def main() -> None:
@@ -27,7 +30,14 @@ def main() -> None:
     split_info = build_split_info(splits, split_order)
     y_true_all, y_pred_all = collect_sequences(model, splits, config, prepared["scaler"], device, split_order)
 
-    candidates = evaluate_candidates(y_true_all, y_pred_all, split_info, ALPHAS)
+    candidates = evaluate_candidates(
+        y_true_all,
+        y_pred_all,
+        split_info,
+        parse_float_tuple(args.alphas, ALPHAS),
+        parse_int_tuple(args.ar_orders, DEFAULT_AR_ORDERS),
+        parse_float_tuple(args.ridge_values, DEFAULT_RIDGE_VALUES),
+    )
     best = min(candidates, key=lambda item: item.val_metrics["rmse"])
     rows = [
         {
@@ -35,6 +45,9 @@ def main() -> None:
             "alpha": "" if item.alpha is None else item.alpha,
             "c": "" if item.c is None else item.c,
             "phi": "" if item.phi is None else item.phi,
+            "order": "" if item.order is None else item.order,
+            "phis": "" if item.phis is None else json.dumps(item.phis),
+            "ridge": "" if item.ridge is None else item.ridge,
             "val_rmse": item.val_metrics["rmse"],
             "val_mae": item.val_metrics["mae"],
             "val_r2": item.val_metrics["r2"],
@@ -56,6 +69,9 @@ def main() -> None:
         "best_alpha": None if best.alpha is None else float(best.alpha),
         "best_c": best.c,
         "best_phi": best.phi,
+        "best_order": best.order,
+        "best_phis": best.phis,
+        "best_ridge": best.ridge,
         "val_metrics": best.val_metrics,
         "test_metrics": best.test_metrics,
         "candidates": rows,
@@ -67,6 +83,9 @@ def main() -> None:
             "best_alpha": None if best.alpha is None else float(best.alpha),
             "best_c": best.c,
             "best_phi": best.phi,
+            "best_order": best.order,
+            "best_phis": best.phis,
+            "best_ridge": best.ridge,
             "val_metrics": best.val_metrics,
             "summary_path": str(checkpoint_json_path),
         }
@@ -78,7 +97,22 @@ def parse_args() -> argparse.Namespace:
     parser = ChineseArgumentParser()
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--alphas")
+    parser.add_argument("--ar-orders")
+    parser.add_argument("--ridge-values")
     return parser.parse_args()
+
+
+def parse_float_tuple(value: str | None, default: tuple[float, ...]) -> tuple[float, ...]:
+    if value is None:
+        return default
+    return tuple(float(item) for item in value.split(",") if item.strip())
+
+
+def parse_int_tuple(value: str | None, default: tuple[int, ...]) -> tuple[int, ...]:
+    if value is None:
+        return default
+    return tuple(int(item) for item in value.split(",") if item.strip())
 
 
 if __name__ == "__main__":

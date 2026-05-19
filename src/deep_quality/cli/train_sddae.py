@@ -16,6 +16,7 @@ def main() -> None:
     args = parse_args()
     config = apply_overrides(
         load_config(args.config),
+        args.seed,
         args.label_ratio,
         args.window_size,
         args.quality_delay,
@@ -103,6 +104,7 @@ def main() -> None:
 def parse_args() -> argparse.Namespace:
     parser = ChineseArgumentParser()
     parser.add_argument("--config", default="configs/sddae_single_scale.yaml")
+    parser.add_argument("--seed", type=int)
     parser.add_argument("--label-ratio", type=float)
     parser.add_argument("--window-size", type=int)
     parser.add_argument("--quality-delay", type=int)

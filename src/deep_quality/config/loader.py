@@ -17,6 +17,7 @@ def load_config(config_path: str) -> dict:
 
 def apply_overrides(
     config: dict,
+    seed: int | None = None,
     label_ratio: float | None = None,
     window_size: int | None = None,
     quality_delay: int | None = None,
@@ -26,6 +27,8 @@ def apply_overrides(
     finetune_epochs: int | None = None,
     epochs: int | None = None,
 ) -> dict:
+    if seed is not None:
+        config["seed"] = int(seed)
     if label_ratio is not None:
         config["training"]["label_ratio"] = float(label_ratio)
     if window_size is not None:
